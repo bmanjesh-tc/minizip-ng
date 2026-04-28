@@ -1111,7 +1111,7 @@ int32_t mz_zip_writer_zip_cd(void *handle) {
     uint64_t number_entry = 0;
     int64_t cd_mem_length = 0;
     int32_t err = MZ_OK;
-    int32_t extrafield_size = 0;
+    int64_t extrafield_size = 0;
     void *file_extra_stream = NULL;
     void *cd_mem_stream = NULL;
 
@@ -1412,7 +1412,7 @@ int32_t mz_zip_writer_entry_close(void *handle) {
     int32_t err = MZ_OK;
 #ifndef MZ_ZIP_NO_CRYPTO
     const uint8_t *extrafield = NULL;
-    int32_t extrafield_size = 0;
+    int64_t extrafield_size = 0;
     int16_t field_length_hash = 0;
     uint8_t hash_digest[MZ_HASH_MAX_SIZE];
 #endif
