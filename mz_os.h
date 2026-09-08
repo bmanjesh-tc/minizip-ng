@@ -73,6 +73,9 @@ extern "C" {
 int32_t mz_path_combine(char *path, const char *join, int32_t max_path);
 /* Combines two paths */
 
+int32_t mz_path_combine_safe(char *path, const char *join, int32_t max_path);
+/* Combines two paths, forcing join to stay relative so it cannot escape path */
+
 int32_t mz_path_append_slash(char *path, int32_t max_path, char slash);
 /* Appends a path slash on to the end of the path */
 
@@ -100,6 +103,9 @@ int32_t mz_path_remove_extension(char *path);
 int32_t mz_path_get_filename(const char *path, const char **filename);
 /* Get the filename from a path */
 
+int32_t mz_path_is_symlink_target_safe(const char *link_path, const char *target, const char *base_path);
+/* Checks if a symlink target resolves within base path. */
+
 int32_t mz_dir_has_unsafe_symlink(const char *path, const char *base_path);
 /* Checks if any existing component of path is a symlink that escapes base path. */
 
@@ -108,6 +114,9 @@ int32_t mz_dir_make(const char *path);
 
 int32_t mz_file_get_crc(const char *path, uint32_t *result_crc);
 /* Gets the crc32 hash of a file */
+
+int32_t mz_os_utf8_string_is_valid(const char *string);
+/* Checks if the string is a valid utf8 byte sequence */
 
 /***************************************************************************/
 /* Platform specific functions */
@@ -121,8 +130,16 @@ void mz_os_unicode_string_delete(wchar_t **string);
 char *mz_os_utf8_string_create(const char *string, int32_t encoding);
 /* Create a utf8 string from a string with another encoding */
 
+#if defined(_WIN32)
+char *mz_os_utf8_string_create_from_unicode(const wchar_t *string, int32_t encoding);
+/* Create a utf8 string from a unicode string */
+#endif
+
 void mz_os_utf8_string_delete(char **string);
 /* Delete a utf8 string that was created */
+
+int32_t mz_os_get_default_encoding(void);
+/* Gets the system default ANSI code page for legacy string conversion */
 
 int32_t mz_os_rand(uint8_t *buf, int32_t size);
 /* Random number generator (not cryptographically secure) */

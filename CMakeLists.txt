@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 # Library version
-set(VERSION "4.2.1")
+set(VERSION "4.2.2")
 # API version
 set(SOVERSION "4")
 
@@ -60,6 +60,7 @@ option(MZ_OPENSSL "Enables OpenSSL for encryption" ${UNIX})
 cmake_dependent_option(MZ_LIBBSD "Builds with libbsd crypto random" ON "UNIX" OFF)
 # Character conversion options
 option(MZ_ICONV "Enables iconv for string encoding conversion" ON)
+option(MZ_ICU "Enables ICU for string encoding conversion" OFF)
 # Code generation options
 option(MZ_COMPRESS_ONLY "Only support compression" OFF)
 option(MZ_DECOMPRESS_ONLY "Only support decompression" OFF)
@@ -363,7 +364,8 @@ endif()
 if(MZ_PPMD)
     message(STATUS "Using PPMD")
 
-    clone_repo(ppmd https://github.com/ip7z/7zip "26.00")
+    # PPMd version number below should match value in ppmd-dependabot.yml
+    clone_repo(ppmd https://github.com/ip7z/7zip "26.02")
 
     # get the 7zip/PPMd version number
     file(READ "${PPMD_SOURCE_DIR}/C/7zVersion.h" version)
@@ -492,8 +494,13 @@ if(WIN32)
     set(MZ_LIBBSD OFF)
     set(MZ_ICONV OFF)
 else()
-    list(APPEND STDLIB_DEF -D_POSIX_C_SOURCE=200809L -D_BSD_SOURCE -D_DEFAULT_SOURCE)
+    list(APPEND STDLIB_DEF -D_BSD_SOURCE -D_DEFAULT_SOURCE)
     list(APPEND MINIZIP_SRC mz_os_posix.c mz_strm_os_posix.c)
+
+    check_symbol_exists(_POSIX_C_SOURCE "features.h" HAVE_POSIX_C_SOURCE)
+    if (NOT HAVE_POSIX_C_SOURCE)
+        list(APPEND STDLIB_DEF -D_POSIX_C_SOURCE=200809L)
+    endif()
 
     if(APPLE)
         # Despite being part of POSIX 2008, macOS thinks that O_NOFOLLOW is still a non-standard extension
@@ -585,6 +592,12 @@ else()
         list(APPEND MINIZIP_DEF -DMZ_ZIP_NO_CRYPTO)
     endif()
 
+    # Iconv and ICU are mutually exclusive; ICU takes precedence
+    if (MZ_ICU AND MZ_ICONV)
+        message(STATUS "ICU enabled, disabling Iconv")
+        set(MZ_ICONV OFF)
+    endif()
+
     # Iconv is only necessary when it is not already built-in
     # FindIconv requires cmake 3.11 or higher
     if (MZ_ICONV)
@@ -604,6 +617,24 @@ else()
         message(STATUS "Character encoding support requires iconv")
 
         set(MZ_ICONV OFF)
+    endif()
+
+    if (MZ_ICU)
+        find_package(ICU COMPONENTS uc QUIET)
+    endif()
+
+    if(ICU_FOUND)
+        message(STATUS "Using ICU ${ICU_VERSION}")
+
+        list(APPEND MINIZIP_DEF -DHAVE_ICU)
+        list(APPEND MINIZIP_DEP_PKG ICU)
+        list(APPEND MINIZIP_LIB ICU::uc)
+        set(PC_PRIVATE_LIBS "${PC_PRIVATE_LIBS} -licuuc")
+    else()
+        if(MZ_ICU)
+            message(STATUS "ICU library not found")
+            set(MZ_ICU OFF)
+        endif()
     endif()
 endif()
 
@@ -829,6 +860,9 @@ if(MZ_BUILD_TESTS)
     target_compile_definitions(minizip_cli PRIVATE ${STDLIB_DEF} ${MINIZIP_DEF})
     target_link_libraries(minizip_cli ${MINIZIP_TARGET})
     if(WIN32)
+        if(MINGW)
+            target_link_options(minizip_cli PRIVATE -municode)
+        endif()
         set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT minizip_cli)
     endif()
 
@@ -890,6 +924,9 @@ if(MZ_BUILD_TESTS AND MZ_BUILD_UNIT_TESTS)
             list(APPEND COMPRESS_METHOD_ARGS "-t")
         endif()
         list(LENGTH COMPRESS_METHOD_NAMES COMPRESS_METHOD_COUNT)
+        if(COMPRESS_METHOD_COUNT EQUAL 0)
+            return()
+        endif()
         math(EXPR COMPRESS_METHOD_COUNT "${COMPRESS_METHOD_COUNT}-1")
         foreach(INDEX RANGE ${COMPRESS_METHOD_COUNT})
             list(GET COMPRESS_METHOD_NAMES ${INDEX} COMPRESS_METHOD_NAME)
@@ -903,7 +940,7 @@ if(MZ_BUILD_TESTS AND MZ_BUILD_UNIT_TESTS)
             add_test(NAME ${COMPRESS_METHOD_NAME}-zip-${EXTRA_NAME}
                      COMMAND minizip_cli ${COMPRESS_METHOD_ARG} -o ${EXTRA_ARGS}
                         ${COMPRESS_METHOD_PATH}
-                        test.c test.h empty.txt random.bin uniform.bin fuzz
+                        empty.txt random.bin uniform.bin fuzz
                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
             add_test(NAME ${COMPRESS_METHOD_NAME}-list-${EXTRA_NAME}
                      COMMAND minizip_cli -l ${EXTRA_ARGS} ${COMPRESS_METHOD_PATH}
@@ -925,7 +962,7 @@ if(MZ_BUILD_TESTS AND MZ_BUILD_UNIT_TESTS)
                             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
             endif()
             add_test(NAME ${COMPRESS_METHOD_NAME}-erase-${EXTRA_NAME}
-                    COMMAND minizip_cli -o -e ${COMPRESS_METHOD_PATH} test.c test.h
+                    COMMAND minizip_cli -o -e ${COMPRESS_METHOD_PATH} empty.txt random.bin
                     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
             if(NOT MZ_COMPRESS_ONLY)
                 add_test(NAME ${COMPRESS_METHOD_NAME}-erase-unzip-${EXTRA_NAME}
@@ -1055,6 +1092,7 @@ add_feature_info(MZ_OPENSSL MZ_OPENSSL "Enables OpenSSL for encryption")
 add_feature_info(MZ_LIBBSD MZ_LIBBSD "Builds with libbsd crypto random")
 # Character conversion options
 add_feature_info(MZ_ICONV MZ_ICONV "Enables iconv string encoding conversion library")
+add_feature_info(MZ_ICU MZ_ICU "Enables ICU string encoding conversion library")
 # Code generation options
 add_feature_info(MZ_COMPRESS_ONLY MZ_COMPRESS_ONLY "Only support compression")
 add_feature_info(MZ_DECOMPRESS_ONLY MZ_DECOMPRESS_ONLY "Only support decompression")

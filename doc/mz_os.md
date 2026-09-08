@@ -13,6 +13,7 @@ These functions provide support for handling common file system operations.
   - [mz\_path\_remove\_filename](#mz_path_remove_filename)
   - [mz\_path\_remove\_extension](#mz_path_remove_extension)
   - [mz\_path\_get\_filename](#mz_path_get_filename)
+  - [mz\_path\_is\_symlink\_target\_safe](#mz_path_is_symlink_target_safe)
 - [Directory](#directory)
   - [mz\_dir\_has\_unsafe\_symlink](#mz_dir_has_unsafe_symlink)
   - [mz\_dir\_make](#mz_dir_make)
@@ -22,7 +23,10 @@ These functions provide support for handling common file system operations.
   - [mz\_os\_unicode\_string\_create](#mz_os_unicode_string_create)
   - [mz\_os\_unicode\_string\_delete](#mz_os_unicode_string_delete)
   - [mz\_os\_utf8\_string\_create](#mz_os_utf8_string_create)
+  - [mz\_os\_utf8\_string\_create\_from\_unicode](#mz_os_utf8_string_create_from_unicode)
+  - [mz\_os\_utf8\_string\_is\_valid](#mz_os_utf8_string_is_valid)
   - [mz\_os\_utf8\_string\_delete](#mz_os_utf8_string_delete)
+  - [mz\_os\_get\_default\_encoding](#mz_os_get_default_encoding)
   - [mz\_os\_rand](#mz_os_rand)
   - [mz\_os\_rename](#mz_os_rename)
   - [mz\_os\_unlink](#mz_os_unlink)
@@ -285,6 +289,33 @@ else
     printf("Path has no filename\n");
 ```
 
+### mz_path_is_symlink_target_safe
+
+Checks if a symbolic link target resolves within a base path. Used to prevent a malicious archive from creating a symbolic link that points outside the extraction directory.
+
+**Arguments**
+|Type|Name|Description|
+|-|-|-|
+|const char *|link_path|Path of the symbolic link to be created|
+|const char *|target|Symbolic link target|
+|const char *|base_path|Base path that the target must not escape|
+
+**Return**
+|Type|Description|
+|-|-|
+|int32_t|[MZ_ERROR](mz_error.md) code, MZ_OK if the target is safe, MZ_EXIST_ERROR if it escapes the base path.|
+
+**Example**
+```
+const char *base_path = "/tmp/extract/";
+const char *link_path = "/tmp/extract/link";
+const char *target = "../outside.txt";
+if (mz_path_is_symlink_target_safe(link_path, target, base_path) == MZ_OK)
+    printf("Symlink target is safe to create\n");
+else
+    printf("Symlink target escapes base path\n");
+```
+
 ## Directory
 
 ### mz_dir_has_unsafe_symlink
@@ -435,6 +466,58 @@ if (test_utf8) {
 }
 ```
 
+### mz_os_utf8_string_create_from_unicode
+
+Creates a UTF-8 string from a unicode string on Windows.
+
+**Arguments**
+
+|Type|Name|Description|
+|-|-|-|
+|const wchar_t *|string|Unicode string to convert|
+|int32_t|encoding|Reserved for encoding selection|
+
+**Return**
+
+|Type|Description|
+|-|-|
+|char *|Returns pointer to UTF-8 encoded string if successful, otherwise NULL.|
+
+**Example**
+
+```c
+wchar_t *test = L"test";
+char *test_utf8 = mz_os_utf8_string_create_from_unicode(test, MZ_ENCODING_UTF8);
+if (test_utf8) {
+    printf("UTF-8 test string created\n");
+    mz_os_utf8_string_delete(&test_utf8);
+}
+```
+
+### mz_os_utf8_string_is_valid
+
+Checks if a string contains a valid UTF-8 byte sequence.
+
+**Arguments**
+
+|Type|Name|Description|
+|-|-|-|
+|const char *|string|String to check|
+
+**Return**
+
+|Type|Description|
+|-|-|
+|int32_t|[MZ_ERROR](mz_error.md) code, MZ_OK if the string is valid UTF-8|
+
+**Example**
+
+```c
+const char *string = "test";
+if (mz_os_utf8_string_is_valid(string) == MZ_OK)
+    printf("String is valid UTF-8\n");
+```
+
 ### mz_os_utf8_string_delete
 
 Delete a utf8 string that was created with _mz_os_utf8_string_create_.
@@ -452,6 +535,24 @@ if (test_utf8) {
     printf("UTF-8 test string created\n");
     mz_os_utf8_string_delete(&test_utf8);
 }
+```
+
+### mz_os_get_default_encoding
+
+Gets the system default ANSI code page for legacy string conversion.
+
+**Return**
+
+|Type|Description|
+|-|-|
+|int32_t|System default ANSI code page, or 0 if one is not available|
+
+**Example**
+
+```c
+int32_t encoding = mz_os_get_default_encoding();
+if (encoding > 0)
+    printf("System default encoding: %d\n", encoding);
 ```
 
 ### mz_os_rand

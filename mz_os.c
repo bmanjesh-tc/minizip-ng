@@ -42,6 +42,22 @@ int32_t mz_path_combine(char *path, const char *join, int32_t max_path) {
     return MZ_OK;
 }
 
+int32_t mz_path_combine_safe(char *path, const char *join, int32_t max_path) {
+    if (!path || !join || !max_path)
+        return MZ_PARAM_ERROR;
+
+    /* Drop a drive letter and any leading separators so an absolute join stays under path */
+    if (*join != 0 && join[1] == ':')
+        join += 2;
+    while (mz_os_is_dir_separator(*join))
+        join += 1;
+
+    if (*join == 0)
+        return MZ_EXIST_ERROR;
+
+    return mz_path_combine(path, join, max_path);
+}
+
 int32_t mz_path_append_slash(char *path, int32_t max_path, char slash) {
     int32_t path_len = (int32_t)strlen(path);
     if ((path_len + 2) >= max_path)
@@ -277,15 +293,77 @@ int32_t mz_path_get_filename(const char *path, const char **filename) {
     return MZ_OK;
 }
 
+int32_t mz_path_is_symlink_target_safe(const char *link_path, const char *target, const char *base_path) {
+    char *combined = NULL;
+    char *resolved = NULL;
+    size_t max_path = 0;
+    size_t base_len = 0;
+    size_t parent_len = 0;
+    int32_t err = MZ_OK;
+
+    if (!link_path || !target || !base_path)
+        return MZ_PARAM_ERROR;
+
+    /* Absolute symlink targets are not allowed */
+    if (mz_os_is_dir_separator(target[0]))
+        return MZ_EXIST_ERROR;
+
+    base_len = strlen(base_path);
+
+    /* Remove trailing slash from base_path for comparison */
+    while (base_len > 0 && mz_os_is_dir_separator(base_path[base_len - 1]))
+        base_len--;
+
+    max_path = strlen(link_path) + strlen(target) + 2;
+
+    combined = (char *)calloc(1, max_path);
+    resolved = (char *)calloc(1, max_path);
+
+    if (!combined || !resolved) {
+        err = MZ_MEM_ERROR;
+        goto target_cleanup;
+    }
+
+    /* Find parent directory length by scanning backwards past filename and trailing slashes */
+    parent_len = strlen(link_path);
+    while (parent_len > 0 && !mz_os_is_dir_separator(link_path[parent_len - 1]))
+        parent_len--;
+    while (parent_len > 0 && mz_os_is_dir_separator(link_path[parent_len - 1]))
+        parent_len--;
+
+    /* Combine parent + target */
+    combined[0] = 0;
+    if (parent_len > 0) {
+        strncpy(combined, link_path, parent_len);
+        combined[parent_len] = 0;
+        mz_path_append_slash(combined, (int32_t)max_path, MZ_PATH_SLASH_PLATFORM);
+    }
+    strncat(combined, target, max_path - strlen(combined) - 1);
+
+    /* Resolve the combined path to eliminate .. */
+    if (mz_path_resolve(combined, resolved, (int32_t)max_path) != MZ_OK) {
+        err = MZ_EXIST_ERROR;
+        goto target_cleanup;
+    }
+
+    /* Check that resolved path stays within base_path */
+    if (strlen(resolved) < base_len || strncmp(resolved, base_path, base_len) != 0 ||
+        (resolved[base_len] != 0 && !mz_os_is_dir_separator(resolved[base_len])))
+        err = MZ_EXIST_ERROR;
+
+target_cleanup:
+    free(combined);
+    free(resolved);
+
+    return err;
+}
+
 int32_t mz_dir_has_unsafe_symlink(const char *path, const char *base_path) {
     char *check_path = NULL;
     char *symlink_target = NULL;
-    char *combined = NULL;
-    char *resolved = NULL;
     size_t path_len = 0;
     size_t base_len = 0;
     size_t max_path = 1024;
-    size_t parent_len = 0;
     size_t pos = 0;
     size_t cmp_len = 0;
     int32_t err = MZ_OK;
@@ -333,13 +411,10 @@ int32_t mz_dir_has_unsafe_symlink(const char *path, const char *base_path) {
                 continue;
         }
 
-        /* Allocate symlink buffers on first use */
+        /* Allocate symlink target buffer on first use */
         if (!symlink_target) {
             symlink_target = (char *)calloc(1, max_path);
-            combined = (char *)calloc(1, max_path);
-            resolved = (char *)calloc(1, max_path);
-
-            if (!symlink_target || !combined || !resolved) {
+            if (!symlink_target) {
                 err = MZ_MEM_ERROR;
                 break;
             }
@@ -350,47 +425,14 @@ int32_t mz_dir_has_unsafe_symlink(const char *path, const char *base_path) {
             break;
         }
 
-        /* Absolute symlink targets are not allowed */
-        if (mz_os_is_dir_separator(symlink_target[0])) {
-            err = MZ_EXIST_ERROR;
+        /* Reject the component if its symlink target escapes the base path */
+        err = mz_path_is_symlink_target_safe(check_path, symlink_target, base_path);
+        if (err != MZ_OK)
             break;
-        }
-
-        /* Find parent directory length by scanning backwards past filename and trailing slashes */
-        parent_len = pos;
-        while (parent_len > 0 && !mz_os_is_dir_separator(check_path[parent_len - 1]))
-            parent_len--;
-        while (parent_len > 0 && mz_os_is_dir_separator(check_path[parent_len - 1]))
-            parent_len--;
-
-        /* Combine parent + symlink_target */
-        combined[0] = 0;
-        if (parent_len > 0) {
-            strncpy(combined, check_path, parent_len);
-            combined[parent_len] = 0;
-            mz_path_append_slash(combined, (int32_t)max_path, MZ_PATH_SLASH_PLATFORM);
-        }
-        strncat(combined, symlink_target, max_path - strlen(combined) - 1);
-
-        /* Resolve the combined path to eliminate .. */
-        if (mz_path_resolve(combined, resolved, (int32_t)max_path) != MZ_OK) {
-            err = MZ_EXIST_ERROR;
-            break;
-        }
-
-        /* Check that resolved path starts with base_path */
-        if (strlen(resolved) < base_len ||
-            strncmp(resolved, base_path, base_len) != 0 ||
-            (resolved[base_len] != 0 && !mz_os_is_dir_separator(resolved[base_len]))) {
-            err = MZ_EXIST_ERROR;
-            break;
-        }
     }
 
     free(check_path);
     free(symlink_target);
-    free(combined);
-    free(resolved);
 
     return err;
 }
@@ -466,6 +508,56 @@ int32_t mz_file_get_crc(const char *path, uint32_t *result_crc) {
     mz_stream_os_delete(&stream);
 
     return err;
+}
+
+/* Checks that a string is a valid utf8 byte sequence; rejects invalid lead and
+   continuation bytes, overlong encodings, surrogates, and code points beyond
+   U+10FFFF. */
+int32_t mz_os_utf8_string_is_valid(const char *string) {
+    const uint8_t *s = (const uint8_t *)string;
+    uint32_t cp = 0;
+    uint32_t min_cp = 0;
+    int32_t trail = 0;
+    uint8_t c = 0;
+
+    if (!string)
+        return MZ_PARAM_ERROR;
+
+    while (*s != 0) {
+        c = *s++;
+
+        if (c < 0x80)
+            continue;
+        if ((c & 0xe0) == 0xc0) {
+            cp = c & 0x1f;
+            trail = 1;
+            min_cp = 0x80;
+        } else if ((c & 0xf0) == 0xe0) {
+            cp = c & 0x0f;
+            trail = 2;
+            min_cp = 0x800;
+        } else if ((c & 0xf8) == 0xf0) {
+            cp = c & 0x07;
+            trail = 3;
+            min_cp = 0x10000;
+        } else {
+            /* Invalid lead byte (0x80-0xbf continuation or 0xf8-0xff) */
+            return MZ_DATA_ERROR;
+        }
+
+        while (trail-- > 0) {
+            c = *s++;
+            if ((c & 0xc0) != 0x80)
+                return MZ_DATA_ERROR;
+            cp = (cp << 6) | (c & 0x3f);
+        }
+
+        /* Reject overlong encodings, surrogates, and out of range code points */
+        if (cp < min_cp || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff))
+            return MZ_DATA_ERROR;
+    }
+
+    return MZ_OK;
 }
 
 /***************************************************************************/

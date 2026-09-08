@@ -176,6 +176,15 @@ jobs:
             packages: clang-14 llvm-14
             gcov-exec: llvm-cov-14 gcov
 
+          - name: Ubuntu Clang ICU
+            os: ubuntu-latest
+            compiler: clang-14
+            cxx-compiler: clang++-14
+            cmake-args: -D MZ_CODE_COVERAGE=ON -D MZ_ICU=ON -D MZ_ICONV=OFF
+            codecov: ubuntu_clang_icu
+            packages: clang-14 llvm-14 libicu-dev
+            gcov-exec: llvm-cov-14 gcov
+
           # No code coverage supported
           - name: Windows MSVC
             os: windows-latest
@@ -225,7 +234,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Install packages (macOS)
       if: runner.os == 'macOS'
@@ -263,7 +272,7 @@ jobs:
     - name: Cache LLVM C++ libraries (MSAN)
       if: contains(matrix.name, 'MSAN') && startsWith(matrix.compiler, 'clang')
       id: cache-llvm
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ${{ env.LLVM_BUILD_DIR }}/lib
@@ -317,7 +326,7 @@ jobs:
         MSAN_OPTIONS: ${{ matrix.msan-options || 'verbosity=0' }}
 
     - name: Setup python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       if: always() && matrix.codecov
       with:
         python-version: '3.x'
@@ -337,7 +346,7 @@ jobs:
           --verbose
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       if: always() && matrix.codecov
       with:
         name: Coverage Report - ${{ matrix.name }}
@@ -384,7 +393,7 @@ jobs:
     if: always() && !cancelled()
     steps:
       - name: Download all reports
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: Coverage Report - *
           merge-multiple: true
@@ -403,7 +412,7 @@ jobs:
           echo "COVERAGE_REPORTS=${files[*]}" >> $GITHUB_ENV
 
       - name: Publish coverage reports
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         if: env.COVERAGE_REPORTS != '' && env.CODECOV_TOKEN != ''
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

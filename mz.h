@@ -14,8 +14,8 @@
 /***************************************************************************/
 
 /* MZ_VERSION */
-#define MZ_VERSION       ("4.2.1")
-#define MZ_VERSION_BUILD (0x040201)
+#define MZ_VERSION       ("4.2.2")
+#define MZ_VERSION_BUILD (0x040202)
 
 /* MZ_ERROR */
 #define MZ_OK             (0)  /* zlib */
@@ -142,6 +142,7 @@
 #define MZ_ENCODING_CODEPAGE_437 (437)
 #define MZ_ENCODING_CODEPAGE_932 (932)
 #define MZ_ENCODING_CODEPAGE_936 (936)
+#define MZ_ENCODING_CODEPAGE_949 (949)
 #define MZ_ENCODING_CODEPAGE_950 (950)
 #define MZ_ENCODING_UTF8         (65001)
 

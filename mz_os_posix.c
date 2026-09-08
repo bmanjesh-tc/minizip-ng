@@ -18,6 +18,9 @@
 #if defined(HAVE_ICONV)
 #  include <iconv.h>
 #endif
+#if defined(HAVE_ICU)
+#  include <unicode/ucnv.h>
+#endif
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -88,6 +91,50 @@ char *mz_os_utf8_string_create(const char *string, int32_t encoding) {
 
     return string_utf8;
 }
+#elif defined(HAVE_ICU)
+char *mz_os_utf8_string_create(const char *string, int32_t encoding) {
+    char string_encoding[16];
+    const char *from_encoding = NULL;
+    int32_t string_length = 0;
+    int32_t string_utf8_size = 0;
+    char *string_utf8 = NULL;
+    int32_t result = 0;
+    UErrorCode status = U_ZERO_ERROR;
+
+    if (!string || encoding <= 0)
+        return NULL;
+
+    if (encoding == MZ_ENCODING_UTF8)
+        from_encoding = "UTF-8";
+    else if (encoding == MZ_ENCODING_CODEPAGE_437)
+        from_encoding = "ibm-437";
+    else if (encoding == MZ_ENCODING_CODEPAGE_932)
+        from_encoding = "windows-932-2000";
+    else if (encoding == MZ_ENCODING_CODEPAGE_936)
+        from_encoding = "windows-936-2000";
+    else if (encoding == MZ_ENCODING_CODEPAGE_950)
+        from_encoding = "windows-950-2000";
+    else {
+        snprintf(string_encoding, sizeof(string_encoding), "windows-%" PRId32 "-2000", encoding);
+        from_encoding = string_encoding;
+    }
+
+    string_length = (int32_t)strlen(string);
+    string_utf8_size = string_length * 4 + 1;
+    string_utf8 = (char *)calloc(string_utf8_size, sizeof(char));
+
+    if (!string_utf8)
+        return NULL;
+
+    result = ucnv_convert("UTF-8", from_encoding, string_utf8, string_utf8_size, string, string_length, &status);
+
+    if (U_FAILURE(status) || result < 0) {
+        free(string_utf8);
+        string_utf8 = NULL;
+    }
+
+    return string_utf8;
+}
 #else
 char *mz_os_utf8_string_create(const char *string, int32_t encoding) {
     return strdup(string);
@@ -99,6 +146,12 @@ void mz_os_utf8_string_delete(char **string) {
         free(*string);
         *string = NULL;
     }
+}
+
+/* Gets the system default encoding; returns 0 because there is no system
+   ANSI code page concept on posix platforms */
+int32_t mz_os_get_default_encoding(void) {
+    return 0;
 }
 
 /***************************************************************************/
@@ -264,7 +317,10 @@ int32_t mz_os_get_file_attribs(const char *path, uint32_t *attributes) {
 int32_t mz_os_set_file_attribs(const char *path, uint32_t attributes) {
     int32_t err = MZ_OK;
 
-    if (chmod(path, (mode_t)attributes) == -1)
+    /* Strip setuid, setgid, and sticky bits so a crafted archive cannot create a setuid file */
+    mode_t mode = (mode_t)attributes & ~(mode_t)(S_ISUID | S_ISGID | S_ISVTX);
+
+    if (chmod(path, mode) == -1)
         err = MZ_INTERNAL_ERROR;
 
     return err;
@@ -406,7 +462,7 @@ int32_t mz_os_get_temp_path(char *path, int32_t max_path, const char *prefix) {
     }
 
     /* Create a filename inside the temporary directory using current time */
-    result = snprintf(path, max_path, "%s/%lux", temp_path, time(NULL));
+    result = snprintf(path, max_path, "%s/%" PRIdMAX "x", temp_path, (intmax_t)time(NULL));
     if (result < 0 || result >= max_path) {
         rmdir(temp_path);
         free(temp_path);
